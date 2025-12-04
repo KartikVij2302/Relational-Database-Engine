@@ -1,27 +1,27 @@
 
 # Relational-Database
 
-A minimalist, integer-only, read-optimized Relational Database Management System built from scratch in C++ for the Data Systems course. The project demonstrates core database internals, including relational algebra, external sorting, indexing, and basic query optimization.
+A minimalist, integer-only, read-focused Relational Database Management System built entirely in C++. The project showcases essential database internals such as relational algebra, external sorting, indexing, and foundational query optimization techniques.
 
 ## Key Characteristics
 
-* **Integer-only data types** for simplified, educational clarity
-* **Read-optimized design** focused on efficient query processing
-* **Block-based storage** simulating realistic disk I/O
-* **FIFO buffer management** with configurable pool size
-* **Single-threaded execution** for a simplified concurrency model
+* **Integer-only schema** to keep the type system simple and instructional
+* **Read-optimized architecture** prioritizing fast query performance
+* **Block-based storage engine** that emulates real-world disk I/O
+* **FIFO-based buffer pool** with adjustable buffer size
+* **Single-threaded execution model** for simplified concurrency handling
 
 ## Core Functionality
 
 * Relational operators: **SELECT, PROJECT, JOIN, CROSS**
-* **External sorting** via K-way merge sort
-* **Hash-based join** mechanisms
-* **Indexing structures** for optimized lookup
-* **Matrix operations:** load, transpose, rotation
-* **GROUP BY** with MAX, MIN, COUNT, SUM, AVG
-* **ORDER BY** with multi-column sorting
-* **INSERT, UPDATE, DELETE** for data manipulation
-* **SOURCE** command for batch query execution
+* **External K-way merge sort** for scalable sorting
+* **Hash join** strategies for efficient table joins
+* **Indexing mechanisms** to accelerate query execution
+* **Matrix utilities:** load, transpose, rotate
+* **GROUP BY** with aggregates: MAX, MIN, COUNT, SUM, AVG
+* **ORDER BY** with multi-column comparison
+* **INSERT, UPDATE, DELETE** for modifying data
+* **SOURCE** command for executing batched queries
 
 ## Supported Operations
 
@@ -34,6 +34,5 @@ A minimalist, integer-only, read-optimized Relational Database Management System
 | Matrix Operations | LOAD MATRIX, ROTATE, CROSSTRANSPOSE, CHECKANTISYM |
 | System Commands   | EXPORT, RENAME, SOURCE, QUIT                      |
 
----
 
-Let me know if you'd like a shorter version, a more narrative style, or GitHub-friendly formatting!
+
