@@ -1,0 +1,519 @@
+The task requires implementing a sorting feature for a table in a database-like system. The sorting should be based on one or more columns, and the order can be ascending or descending. After sorting, the original table should be replaced with the sorted table. The implementation will involve reading the data from pages, sorting it, and then writing it back to the appropriate pages. And Updating the table object with the currect table. 
+SYNTAX: SORT <table-name> BY <col1>, <col2>,<col3> IN <ASC|DESC>, <ASC|DESC>, <ASC|DESC>
+• There can be any number of columns in the query.
+• You must use the order of the columns provided in the query for setting
+priority.
+After Sorting you have to replace the sorted Table with the original table.
+
+Just for giving you information When we load a table it been divided in Blocks/pages and get stored on hard disk. 
+
+So you have to also keep that in mind while updating table
+
+
+
+
+#include "global.h"
+
+/**
+ * @brief Construct a new Table:: Table object
+ *
+ */
+Table::Table()
+{
+    logger.log("Table::Table");
+}
+
+/**
+ * @brief Construct a new Table:: Table object used in the case where the data
+ * file is available and LOAD command has been called. This command should be
+ * followed by calling the load function;
+ *
+ * @param tableName 
+ */
+Table::Table(string tableName)
+{
+    logger.log("Table::Table");
+    this->sourceFileName = "../data/" + tableName + ".csv";
+    this->tableName = tableName;
+}
+
+/**
+ * @brief Construct a new Table:: Table object used when an assignment command
+ * is encountered. To create the table object both the table name and the
+ * columns the table holds should be specified.
+ *
+ * @param tableName 
+ * @param columns 
+ */
+Table::Table(string tableName, vector<string> columns)
+{
+    logger.log("Table::Table");
+    this->sourceFileName = "../data/temp/" + tableName + ".csv";
+    this->tableName = tableName;
+    this->columns = columns;
+    this->columnCount = columns.size();
+    this->maxRowsPerBlock = (uint)((BLOCK_SIZE * 1000) / (sizeof(int) * columnCount));
+    this->writeRow<string>(columns);
+}
+
+/**
+ * @brief The load function is used when the LOAD command is encountered. It
+ * reads data from the source file, splits it into blocks and updates table
+ * statistics.
+ *
+ * @return true if the table has been successfully loaded 
+ * @return false if an error occurred 
+ */
+bool Table::load()
+{
+    logger.log("Table::load");
+    fstream fin(this->sourceFileName, ios::in);
+    string line;
+    if (getline(fin, line))
+    {
+        fin.close();
+        if (this->extractColumnNames(line))
+            if (this->blockify())
+                return true;
+    }
+    fin.close();
+    return false;
+}
+
+/**
+ * @brief Function extracts column names from the header line of the .csv data
+ * file. 
+ *
+ * @param line 
+ * @return true if column names successfully extracted (i.e. no column name
+ * repeats)
+ * @return false otherwise
+ */
+bool Table::extractColumnNames(string firstLine)
+{
+    logger.log("Table::extractColumnNames");
+    unordered_set<string> columnNames;
+    string word;
+    stringstream s(firstLine);
+    while (getline(s, word, ','))
+    {
+        word.erase(std::remove_if(word.begin(), word.end(), ::isspace), word.end());
+        if (columnNames.count(word))
+            return false;
+        columnNames.insert(word);
+        this->columns.emplace_back(word);
+    }
+    this->columnCount = this->columns.size();
+    this->maxRowsPerBlock = (uint)((BLOCK_SIZE * 1000) / (sizeof(int) * this->columnCount));
+    return true;
+}
+
+/**
+ * @brief This function splits all the rows and stores them in multiple files of
+ * one block size. 
+ *
+ * @return true if successfully blockified
+ * @return false otherwise
+ */
+bool Table::blockify()
+{
+    logger.log("Table::blockify");
+    ifstream fin(this->sourceFileName, ios::in);
+    string line, word;
+    vector<int> row(this->columnCount, 0);
+    vector<vector<int>> rowsInPage(this->maxRowsPerBlock, row);
+    int pageCounter = 0;
+    unordered_set<int> dummy;
+    dummy.clear();
+    this->distinctValuesInColumns.assign(this->columnCount, dummy);
+    this->distinctValuesPerColumnCount.assign(this->columnCount, 0);
+    getline(fin, line);
+    while (getline(fin, line))
+    {
+        stringstream s(line);
+        for (int columnCounter = 0; columnCounter < this->columnCount; columnCounter++)
+        {
+            if (!getline(s, word, ','))
+                return false;
+            row[columnCounter] = stoi(word);
+            rowsInPage[pageCounter][columnCounter] = row[columnCounter];
+        }
+        pageCounter++;
+        this->updateStatistics(row);
+        if (pageCounter == this->maxRowsPerBlock)
+        {
+            bufferManager.writePage(this->tableName, this->blockCount, rowsInPage, pageCounter);
+            this->blockCount++;
+            this->rowsPerBlockCount.emplace_back(pageCounter);
+            pageCounter = 0;
+        }
+    }
+    if (pageCounter)
+    {
+        bufferManager.writePage(this->tableName, this->blockCount, rowsInPage, pageCounter);
+        this->blockCount++;
+        this->rowsPerBlockCount.emplace_back(pageCounter);
+        pageCounter = 0;
+    }
+
+    if (this->rowCount == 0)
+        return false;
+    this->distinctValuesInColumns.clear();
+    return true;
+}
+
+/**
+ * @brief Given a row of values, this function will update the statistics it
+ * stores i.e. it updates the number of rows that are present in the column and
+ * the number of distinct values present in each column. These statistics are to
+ * be used during optimisation.
+ *
+ * @param row 
+ */
+void Table::updateStatistics(vector<int> row)
+{
+    this->rowCount++;
+    for (int columnCounter = 0; columnCounter < this->columnCount; columnCounter++)
+    {
+        if (!this->distinctValuesInColumns[columnCounter].count(row[columnCounter]))
+        {
+            this->distinctValuesInColumns[columnCounter].insert(row[columnCounter]);
+            this->distinctValuesPerColumnCount[columnCounter]++;
+        }
+    }
+}
+
+/**
+ * @brief Checks if the given column is present in this table.
+ *
+ * @param columnName 
+ * @return true 
+ * @return false 
+ */
+bool Table::isColumn(string columnName)
+{
+    logger.log("Table::isColumn");
+    for (auto col : this->columns)
+    {
+        if (col == columnName)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @brief Renames the column indicated by fromColumnName to toColumnName. It is
+ * assumed that checks such as the existence of fromColumnName and the non prior
+ * existence of toColumnName are done.
+ *
+ * @param fromColumnName 
+ * @param toColumnName 
+ */
+void Table::renameColumn(string fromColumnName, string toColumnName)
+{
+    logger.log("Table::renameColumn");
+    for (int columnCounter = 0; columnCounter < this->columnCount; columnCounter++)
+    {
+        if (columns[columnCounter] == fromColumnName)
+        {
+            columns[columnCounter] = toColumnName;
+            break;
+        }
+    }
+    return;
+}
+
+/**
+ * @brief Function prints the first few rows of the table. If the table contains
+ * more rows than PRINT_COUNT, exactly PRINT_COUNT rows are printed, else all
+ * the rows are printed.
+ *
+ */
+void Table::print()
+{
+    logger.log("Table::print");
+    uint count = min((long long)PRINT_COUNT, this->rowCount);
+
+    //print headings
+    this->writeRow(this->columns, cout);
+
+    Cursor cursor(this->tableName, 0);
+    vector<int> row;
+    for (int rowCounter = 0; rowCounter < count; rowCounter++)
+    {
+        row = cursor.getNext();
+        this->writeRow(row, cout);
+    }
+    printRowCount(this->rowCount);
+}
+
+
+
+/**
+ * @brief This function returns one row of the table using the cursor object. It
+ * returns an empty row is all rows have been read.
+ *
+ * @param cursor 
+ * @return vector<int> 
+ */
+void Table::getNextPage(Cursor *cursor)
+{
+    logger.log("Table::getNext");
+
+        if (cursor->pageIndex < this->blockCount - 1)
+        {
+            cursor->nextPage(cursor->pageIndex+1);
+        }
+}
+
+
+
+/**
+ * @brief called when EXPORT command is invoked to move source file to "data"
+ * folder.
+ *
+ */
+void Table::makePermanent()
+{
+    logger.log("Table::makePermanent");
+    if(!this->isPermanent())
+        bufferManager.deleteFile(this->sourceFileName);
+    string newSourceFile = "../data/" + this->tableName + ".csv";
+    ofstream fout(newSourceFile, ios::out);
+
+    //print headings
+    this->writeRow(this->columns, fout);
+
+    Cursor cursor(this->tableName, 0);
+    vector<int> row;
+    for (int rowCounter = 0; rowCounter < this->rowCount; rowCounter++)
+    {
+        row = cursor.getNext();
+        this->writeRow(row, fout);
+    }
+    fout.close();
+}
+
+/**
+ * @brief Function to check if table is already exported
+ *
+ * @return true if exported
+ * @return false otherwise
+ */
+bool Table::isPermanent()
+{
+    logger.log("Table::isPermanent");
+    if (this->sourceFileName == "../data/" + this->tableName + ".csv")
+    return true;
+    return false;
+}
+
+/**
+ * @brief The unload function removes the table from the database by deleting
+ * all temporary files created as part of this table
+ *
+ */
+void Table::unload(){
+    logger.log("Table::~unload");
+    for (int pageCounter = 0; pageCounter < this->blockCount; pageCounter++)
+        bufferManager.deleteFile(this->tableName, pageCounter);
+    if (!isPermanent())
+        bufferManager.deleteFile(this->sourceFileName);
+}
+
+/**
+ * @brief Function that returns a cursor that reads rows from this table
+ * 
+ * @return Cursor 
+ */
+Cursor Table::getCursor()
+{
+    logger.log("Table::getCursor");
+    Cursor cursor(this->tableName, 0);
+    return cursor;
+}
+/**
+ * @brief Function that returns the index of column indicated by columnName
+ * 
+ * @param columnName 
+ * @return int 
+ */
+int Table::getColumnIndex(string columnName)
+{
+    logger.log("Table::getColumnIndex");
+    for (int columnCounter = 0; columnCounter < this->columnCount; columnCounter++)
+    {
+        if (this->columns[columnCounter] == columnName)
+            return columnCounter;
+    }
+    return 0;
+}
+
+vector<string> Table::getColumnNames()
+{
+  return this->columns;
+}
+
+
+
+#include "global.h"
+
+BufferManager::BufferManager()
+{
+    logger.log("BufferManager::BufferManager");
+}
+
+/**
+ * @brief Function called to read a page from the buffer manager. If the page is
+ * not present in the pool, the page is read and then inserted into the pool.
+ *
+ * @param tableName 
+ * @param pageIndex 
+ * @return Page 
+ */
+Page BufferManager::getPage(string tableName, int pageIndex)
+{
+    logger.log("BufferManager::getPage");
+    string pageName = "../data/temp/"+tableName + "_Page" + to_string(pageIndex);
+    if (this->inPool(pageName))
+        return this->getFromPool(pageName);
+    else
+        return this->insertIntoPool(tableName, pageIndex);
+}
+
+/**
+ * @brief Checks to see if a page exists in the pool
+ *
+ * @param pageName 
+ * @return true 
+ * @return false 
+ */
+bool BufferManager::inPool(string pageName)
+{
+    logger.log("BufferManager::inPool");
+    for (auto page : this->pages)
+    {
+        if (pageName == page.pageName)
+            return true;
+    }
+    return false;
+}
+
+/**
+ * @brief If the page is present in the pool, then this function returns the
+ * page. Note that this function will fail if the page is not present in the
+ * pool.
+ *
+ * @param pageName 
+ * @return Page 
+ */
+Page BufferManager::getFromPool(string pageName)
+{
+    logger.log("BufferManager::getFromPool");
+    for (auto page : this->pages)
+        if (pageName == page.pageName)
+            return page;
+}
+
+/**
+ * @brief Inserts page indicated by tableName and pageIndex into pool. If the
+ * pool is full, the pool ejects the oldest inserted page from the pool and adds
+ * the current page at the end. It naturally follows a queue data structure. 
+ *
+ * @param tableName 
+ * @param pageIndex 
+ * @return Page 
+ */
+Page BufferManager::insertIntoPool(string tableName, int pageIndex)
+{
+    logger.log("BufferManager::insertIntoPool");
+    Page page(tableName, pageIndex);
+    if (this->pages.size() >= BLOCK_COUNT)
+        pages.pop_front();
+    pages.push_back(page);
+    return page;
+}
+
+/**
+ * @brief The buffer manager is also responsible for writing pages. This is
+ * called when new tables are created using assignment statements.
+ *
+ * @param tableName 
+ * @param pageIndex 
+ * @param rows 
+ * @param rowCount 
+ */
+void BufferManager::writePage(string tableName, int pageIndex, vector<vector<int>> rows, int rowCount)
+{
+    logger.log("BufferManager::writePage");
+    Page page(tableName, pageIndex, rows, rowCount);
+    page.writePage();
+}
+
+/**
+ * @brief Deletes file names fileName
+ *
+ * @param fileName 
+ */
+void BufferManager::deleteFile(string fileName)
+{
+    
+    if (remove(fileName.c_str()))
+        logger.log("BufferManager::deleteFile: Err");
+        else logger.log("BufferManager::deleteFile: Success");
+}
+
+/**
+ * @brief Overloaded function that calls deleteFile(fileName) by constructing
+ * the fileName from the tableName and pageIndex.
+ *
+ * @param tableName 
+ * @param pageIndex 
+ */
+void BufferManager::deleteFile(string tableName, int pageIndex)
+{
+    logger.log("BufferManager::deleteFile");
+    string fileName = "../data/temp/"+tableName + "_Page" + to_string(pageIndex);
+    this->deleteFile(fileName);
+}
+
+
+
+void executeSORT()
+{
+  logger.log("executeSORT");
+
+  // Retrieve the table
+  Table *table = tableCatalogue.getTable(parsedQuery.sortRelationName);
+  Cursor cursor = table->getCursor();
+
+  // Load all rows into a vector for sorting
+  vector<vector<int>> rows;
+  vector<int> row;
+  while (!(row = cursor.getNext()).empty())
+  {
+    rows.push_back(row);
+  }
+
+  // Sorting logic
+  auto comparator = [&](const vector<int> &a, const vector<int> &b)
+  {
+    for (size_t i = 0; i < parsedQuery.sortColumnNames.size(); ++i)
+    {
+      int colIndex = table->getColumnIndex(parsedQuery.sortColumnNames[i]);
+      if (a[colIndex] != b[colIndex])
+      {
+        return parsedQuery.sortingDirection[i] ? a[colIndex] < b[colIndex] : a[colIndex] > b[colIndex];
+      }
+    }
+    return false; // They are equal
+  };
+
+  sort(rows.begin(), rows.end(), comparator);
+
+  // Write sorted rows back to pages
+  // update the table class
+  table->print();
+}
